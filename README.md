@@ -1,10 +1,8 @@
-# Ender 3 V3 KE Full Restore
+# Ender 3 V3 KE — Hybrid Restore
 
-One-liner gjenoppretting av en factory-resatt Ender 3 V3 KE til full bruksklar tilstand med Helper Script, Fluidd, Mainsail, KAMP og custom configs.
+Halvautomatisk gjenoppretting av en factory-resatt Ender 3 V3 KE. Skriptet automatiserer alt som er trygt å automatisere; én manuell fase i midten der du velger features i Helper Script-menyen.
 
 ## Bruk
-
-### One-liner (anbefalt)
 
 På printeren etter factory reset og root-aktivering:
 
@@ -12,95 +10,120 @@ På printeren etter factory reset og root-aktivering:
 wget -O- https://raw.githubusercontent.com/hauntedstack/Ender_3_V3_KE_restore_oneliner/main/install.sh | sh
 ```
 
-### Manuelt
+## Hvorfor hybrid og ikke full one-liner?
 
-```bash
-ssh root@<printer-ip>
-wget https://raw.githubusercontent.com/hauntedstack/Ender_3_V3_KE_restore_oneliner/main/install.sh
-chmod +x install.sh
-./install.sh
+Helper Script (Guilouz) er en interaktiv TUI uten CLI-modus. Et fullt automatisert skript måtte enten:
+
+- bruke `expect` til å sende tastetrykk (bryter ved menyendringer i Helper Script), eller
+- kalle interne shell-funksjoner direkte (bryter ved refaktorering)
+
+Begge er skjøre. Hybrid-tilnærmingen er stabil over tid og krever bare ~30 sekunder manuell input.
+
+## De 3 fasene
+
+### Fase 1 — Automatisert forberedelse
+- Verifiserer root, internett, Creality OS
+- Kloner Helper Script til `/usr/data/helper-script`
+- Laster ned config-filer (`printer.cfg`, `moonraker.conf`, `gcode_macro.cfg`) til `/usr/data/ke-restore-staging/`
+
+### Fase 2 — Manuell features-installasjon
+Skriptet starter Helper Script og viser deg en liste over hva som skal installeres:
+
+```
+[Install] menu:
+  1. Moonraker and Nginx     ← installer FØRST
+  2. Fluidd
+  3. Mainsail
+  4. KAMP
+  5. M600 Support
+  6. Save Z-Offset
+  7. Improved Shapers
+  8. Screws Tilt Adjust
+  9. Useful Macros (valgfritt)
 ```
 
-## Hva skriptet gjør
+Du navigerer menyen, installerer features, trykker E for å avslutte.
 
-1. **Verifiserer miljø** — sjekker root, Creality OS, internett
-2. **Installerer Helper Script** (Guilouz) — `/usr/data/helper-script/`
-3. **Installerer web-frontends** — Moonraker, Fluidd (port 4408), Mainsail (port 4409)
-4. **Installerer features** — M600 Support, Save Z-offset, Improved Shapers, Screws Tilt Adjust
-5. **Installerer KAMP** — `~/Klipper-Adaptive-Meshing-Purging/` + symlink i config
-6. **Kopierer configs** — `printer.cfg`, `moonraker.conf`, `gcode_macro.cfg`, `KAMP_Settings.cfg`
-7. **Restarter Klipper/Moonraker/Nginx**
-8. **Skriver ut kalibreringsoppskrift**
+### Fase 3 — Automatisert aktivering
+- Verifiserer at nødvendige features ble installert
+- Backer opp eksisterende configs til `pre-restore-backup-<timestamp>/`
+- Kopierer staging-configs til `/usr/data/printer_data/config/`
+- Restarter Klipper, Moonraker, Nginx via `supervisorctl`
+- Viser kalibreringsoppskrift
 
-## Hva skriptet IKKE gjør
+## Etter installasjon — KRITISK kalibrering
 
-Maskin-spesifikk kalibrering må kjøres manuelt etterpå, fordi hver KE er fysisk unik:
+Printeren har **ingen** kalibreringsdata. Du må kjøre disse i Fluidd-konsollen:
 
-- **Z-offset** — `PROBE_CALIBRATE` + `SAVE_CONFIG`
-- **PID hotend** — `PID_CALIBRATE HEATER=extruder TARGET=230` + `SAVE_CONFIG`
-- **PID bed** — `PID_CALIBRATE HEATER=heater_bed TARGET=60` + `SAVE_CONFIG`
-- **Bed mesh** — `BED_MESH_CALIBRATE` + `SAVE_CONFIG`
-- **Input shaper** — `SHAPER_CALIBRATE` + `SAVE_CONFIG`
+```
+PROBE_CALIBRATE          # paper-test → ACCEPT
+SAVE_CONFIG
 
-Skriptet skriver ut nøyaktige kommandoer ved slutten.
+PID_CALIBRATE HEATER=extruder TARGET=230
+SAVE_CONFIG
+
+PID_CALIBRATE HEATER=heater_bed TARGET=60
+SAVE_CONFIG
+
+M190 S60
+BED_MESH_CALIBRATE
+SAVE_CONFIG
+
+SHAPER_CALIBRATE
+SAVE_CONFIG
+```
+
+**ADVARSEL**: `z_offset: 0` i `printer.cfg` er placeholder. **Ikke print** før `PROBE_CALIBRATE` + `SAVE_CONFIG` er kjørt, ellers borer dyse ned i bed-en.
 
 ## Forutsetninger
 
-- Printer er factory-resatt (Settings → Restore Factory Settings)
-- Root er aktivert (Settings → Root Account Information → aksepter advarselen)
-- Tilkoblet Wi-Fi
-- Firmware 1.2.1.3 eller nyere
+- Firmware 1.1.0.12 eller nyere
+- Factory reset utført (Settings → Restore Factory Settings)
+- Root aktivert (Settings → Root Account Information → aksepter advarselen)
+- Wi-Fi tilkoblet
+- Stock Creality-grensesnitt ikke fjernet manuelt (skriptet erstatter det)
 
-## Custom configs
-
-Hvis du vil bruke dine egne configs istedenfor de i dette repoet, velg **B** når skriptet spør, og oppgi base-URL til en mappe som inneholder `printer.cfg`, `moonraker.conf`, `gcode_macro.cfg`, `KAMP_Settings.cfg`.
-
-Eksempel:
-```
-https://raw.githubusercontent.com/dittnavn/mitt-ke-repo/main/configs
-```
-
-## Hva er inkludert i configs?
+## Inkluderte configs
 
 ### `printer.cfg`
-- Standard KE hardware-konfig (steppers, MCU, BLTouch, fans)
-- Forbedret BLTouch-tuning (5 samples, tight tolerance, slow probe)
+- Standard KE hardware (steppers, MCU, BLTouch, fans)
+- Forbedret BLTouch (5 samples, tolerance 0.008, slow probe)
 - 7×7 bicubic bed mesh
 - `max_accel: 10000`
-- Includes for Helper Script features og KAMP
+- Includes for Helper Script-features og KAMP
+- `z_offset: 0` placeholder
 
 ### `gcode_macro.cfg`
 - KAMP-aware `START_PRINT` (BED_MESH_CALIBRATE → SMART_PARK → LINE_PURGE)
 - Custom `CANCEL_PRINT` med rask nedkjøling
 - `BED_MESH_CALIBRATE_FAST` (adaptiv probe count)
-- `BED_MESH_CHECK` (validering)
+- `BED_MESH_CHECK` validering
 - `EJECT_PRINT` (skyver print av bed)
 - M600 filament change
-- Pause/resume-makroer
+- Pause/resume
 
 ### `moonraker.conf`
 - CORS for Fluidd, Mainsail
-- Update_managers for Helper Script, Fluidd, Mainsail, KAMP
+- Update_managers for Helper Script, Fluidd, Mainsail
+- `enable_object_processing: True` (kreves av KAMP)
 
-### `KAMP_Settings.cfg`
-- Adaptive Meshing, Line Purge, Voron Purge, Smart Park aktivert
+## Status
 
-## Miljøvariabler
+⚠️ **IKKE TESTET END-TO-END.** Skriptet er bygget basert på offisiell Helper Script-dokumentasjon (v5.0.0+) og verifisert mot Creality OS-strukturen, men har ikke blitt kjørt fra fersk factory reset til ferdig kalibrert printer ennå.
 
-Du kan overstyre repo-pekeren før kjøring:
+Kjente begrensninger:
+- Service restart bruker `supervisorctl` (Supervisor Lite installeres med Moonraker fra Helper Script). Hvis Moonraker ikke installeres først, vil restart-kommandoer feile silent.
+- Skriptet antar at brukeren faktisk velger de features som anbefales. Hopper du over `Save Z-Offset` for eksempel, vil Klipper krasje fordi `printer.cfg` inkluderer den filen.
+
+Første gangs kjøring bør gjøres med åpen SSH-økt parallelt så du kan reagere på feil.
+
+## Egen versjon
+
+Fork repoet og overstyr peker med miljøvariabler:
 
 ```bash
-KE_RESTORE_USER=dittnavn KE_RESTORE_REPO=eget-repo sh install.sh
+KE_RESTORE_USER=dittnavn KE_RESTORE_REPO=ditt-repo sh install.sh
 ```
-
-## Known Issues
-
-Følgende punkter er ikke verifisert end-to-end og bør bekreftes mot din egen oppsett før produksjonsbruk:
-
-- **Helper Script install-paths** er antatt å være `/usr/data/helper-script/files/scripts/` — skal verifiseres mot Guilouz' faktiske repo-struktur. Hvis Guilouz endrer mappestruktur kan `$HELPER_LIB`-pekeren i `install.sh` trenge oppdatering.
-- **Non-interactive mode for Helper Script feature-installasjon** er antatt å fungere med `sh script.sh install`. Hvis install-scriptene venter på interaktiv input (y/n-bekreftelser), kan det være nødvendig å pipe `yes` inn, bruke `expect`, eller modifisere `$HELPER_LIB`-scriptene.
-- **Service restart** bruker både `supervisorctl` og `init.d` som fallback — riktig variant er printer-firmware-versjonsavhengig. Begge er forsøkt for å dekke nyere og eldre Creality OS-versjoner.
-- **Skriptet er IKKE testet end-to-end** på en fersk factory reset. Test i et trygt miljø før du stoler på det for en faktisk gjenoppretting.
 
 ## Lisens
 
