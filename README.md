@@ -108,6 +108,51 @@ SAVE_CONFIG
 - Update_managers for Helper Script, Fluidd, Mainsail
 - `enable_object_processing: True` (required by KAMP)
 
+## OrcaSlicer configuration
+
+This repo contains the Klipper-side configs. The slicer side (OrcaSlicer Start/End G-code, bed shape) is configured separately on your PC.
+
+### Bed Shape
+
+**Printer Settings → Printable Area:**
+- Shape: Rectangular
+- Size: X=221, Y=221 (slightly over the physical 220 to avoid false-positive boundary warnings)
+- Origin: X=0, Y=0
+
+### Recommended Machine Start G-code
+
+Optimized for KAMP and minimal wait time between prints (no unnecessary pre-heat phase):
+
+```
+; Ender 3 V3 KE Custom Start G-code (KAMP-optimized)
+M140 S[bed_temperature_initial_layer_single]   ; Start heating bed
+M190 S[bed_temperature_initial_layer_single]   ; Wait for bed
+M400
+G28                                            ; Home
+BED_MESH_CALIBRATE                             ; Adaptive mesh (KAMP overrides to adaptive)
+SMART_PARK                                     ; Park near print area (KAMP)
+M109 S[nozzle_temperature_initial_layer]       ; Heat to print temp
+G92 E0
+LINE_PURGE                                     ; Adaptive purge line (KAMP)
+```
+
+**Why no pre-heat?** The usual "pre-heat to 150°C before probing" is often cargo-cult. On the KE with BLTouch (mechanical probe), the only real reason would be filament ooze during probing. KAMP's `LINE_PURGE` cleans that up anyway, so there's no real effect on the print. Saves ~2 minutes per print on back-to-back jobs with a hot hotend.
+
+### Recommended Machine End G-code
+
+```
+G91                  ; Relative positioning
+G1 F1800 E-6         ; Retract 6mm
+G1 F600 Z5           ; Lift Z 5mm
+G90                  ; Back to absolute
+G1 X0 Y215 F7200     ; Move bed forward (Y=215, not 220, to avoid boundary warning)
+M84                  ; Disable steppers
+```
+
+### IMPORTANT: NEVER use ADAPTIVE_BED_MESH_CALIBRATE
+
+This is NOT a valid command. KAMP automatically overrides the standard `BED_MESH_CALIBRATE` when `Adaptive_Meshing.cfg` is enabled. Always use `BED_MESH_CALIBRATE`.
+
 ## Status
 
 ⚠️ **NOT TESTED END-TO-END.** The script is built from the official Helper Script docs (v5.0.0+) and verified against the Creality OS layout, but it has not been run from a fresh factory reset through to a fully calibrated printer.
