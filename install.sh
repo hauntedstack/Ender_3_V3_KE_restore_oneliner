@@ -2,23 +2,23 @@
 # =============================================================================
 # Ender 3 V3 KE Hybrid Restore Script
 # =============================================================================
-# Bruker: wget -O- https://raw.githubusercontent.com/hauntedstack/Ender_3_V3_KE_restore_oneliner/main/install.sh | sh
+# Usage: wget -O- https://raw.githubusercontent.com/hauntedstack/Ender_3_V3_KE_restore_oneliner/main/install.sh | sh
 #
-# Forutsetninger:
-#   - Printer er factory-resatt
-#   - Root SSH er aktivert (Settings → Root Account Information)
-#   - Tilkoblet til internett via Wi-Fi
-#   - Firmware 1.1.0.12 eller nyere
+# Prerequisites:
+#   - Printer is factory-reset
+#   - Root SSH is enabled (Settings → Root Account Information)
+#   - Connected to internet via Wi-Fi
+#   - Firmware 1.1.0.12 or newer
 #
 # Workflow:
-#   FASE 1 (auto):    Installer Helper Script, last ned configs
-#   FASE 2 (manuell): Bruker kjører helper.sh og velger features via meny
-#   FASE 3 (auto):    Last opp configs, restart tjenester
+#   PHASE 1 (auto):    Install Helper Script, download configs
+#   PHASE 2 (manual):  User runs helper.sh and selects features from the menu
+#   PHASE 3 (auto):    Activate configs, restart services
 # =============================================================================
 
 set -e
 
-# -------- KONFIG --------
+# -------- CONFIG --------
 REPO_USER="${KE_RESTORE_USER:-hauntedstack}"
 REPO_NAME="${KE_RESTORE_REPO:-Ender_3_V3_KE_restore_oneliner}"
 REPO_BRANCH="${KE_RESTORE_BRANCH:-main}"
@@ -53,59 +53,59 @@ cat <<'EOF'
   ║       hauntedstack/Ender_3_V3_KE_restore_oneliner            ║
   ╚══════════════════════════════════════════════════════════════╝
 
-  Dette skriptet kjører i 3 faser:
-    FASE 1 (auto):    Installer Helper Script, last ned configs
-    FASE 2 (manuell): Du velger features i Helper Script-menyen
-    FASE 3 (auto):    Aktiver configs, restart tjenester
+  This script runs in 3 phases:
+    PHASE 1 (auto):    Install Helper Script, download configs
+    PHASE 2 (manual):  You select features in the Helper Script menu
+    PHASE 3 (auto):    Activate configs, restart services
 
 EOF
 
-printf "Trykk Enter for å starte, Ctrl+C for å avbryte... "
+printf "Press Enter to start, Ctrl+C to abort... "
 read REPLY
 
 # =============================================================================
-# SJEKKER
+# CHECKS
 # =============================================================================
 
 if [ "$(id -u)" -ne 0 ]; then
-    fatal "Dette skriptet må kjøres som root."
+    fatal "This script must be run as root."
 fi
 
 if [ ! -d "/usr/data" ]; then
-    fatal "Dette ser ikke ut som en Creality OS-printer. /usr/data finnes ikke."
+    fatal "This does not look like a Creality OS printer. /usr/data does not exist."
 fi
 
-log "Sjekker internett-tilkobling..."
+log "Checking internet connection..."
 if ! ping -c 1 -W 5 github.com > /dev/null 2>&1; then
-    fatal "Ingen internett-tilkobling. Sjekk Wi-Fi."
+    fatal "No internet connection. Check Wi-Fi."
 fi
-success "Internett OK"
+success "Internet OK"
 
 # =============================================================================
-# FASE 1: AUTOMATISERT FORBEREDELSE
+# PHASE 1: AUTOMATED PREPARATION
 # =============================================================================
-phase "FASE 1/3: Automatisert forberedelse"
+phase "PHASE 1/3: Automated preparation"
 
-# -------- Installer Helper Script --------
-log "Installerer Creality Helper Script..."
+# -------- Install Helper Script --------
+log "Installing Creality Helper Script..."
 
 if [ -d "$HELPER_SCRIPT_DIR" ]; then
-    warn "Helper Script finnes allerede - oppdaterer istedenfor"
+    warn "Helper Script already exists - updating instead"
     cd "$HELPER_SCRIPT_DIR"
-    git pull || warn "Kunne ikke oppdatere - fortsetter med eksisterende versjon"
+    git pull || warn "Could not update - continuing with existing version"
 else
-    # Fix for SSL-feil som kan oppstå på enkelte firmware-versjoner
+    # Workaround for SSL errors that occur on some firmware versions
     git config --global http.sslVerify false 2>/dev/null || true
 
     git clone --depth 1 https://github.com/Guilouz/Creality-Helper-Script.git "$HELPER_SCRIPT_DIR" \
-        || fatal "Klarte ikke å klone Helper Script"
+        || fatal "Failed to clone Helper Script"
 fi
 
 chmod +x "$HELPER_SCRIPT_DIR/helper.sh" 2>/dev/null || true
-success "Helper Script installert i $HELPER_SCRIPT_DIR"
+success "Helper Script installed in $HELPER_SCRIPT_DIR"
 
-# -------- Last ned configs til staging --------
-log "Laster ned config-filer til staging-mappe..."
+# -------- Download configs to staging --------
+log "Downloading config files to staging directory..."
 
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
@@ -115,38 +115,38 @@ DOWNLOAD_FAILED=0
 
 for f in $CONFIG_FILES; do
     if wget -q -O "$STAGING_DIR/$f" "${REPO_BASE_URL}/configs/${f}"; then
-        success "Lastet ned $f"
+        success "Downloaded $f"
     else
-        error "Klarte ikke å laste ned $f"
+        error "Failed to download $f"
         DOWNLOAD_FAILED=1
     fi
 done
 
 if [ $DOWNLOAD_FAILED -eq 1 ]; then
-    warn "Noen filer feilet. Verifiser URL: ${REPO_BASE_URL}/configs/"
-    printf "Fortsett likevel? [y/N]: "
+    warn "Some files failed. Verify URL: ${REPO_BASE_URL}/configs/"
+    printf "Continue anyway? [y/N]: "
     read REPLY
     case "$REPLY" in
         [Yy]*) ;;
-        *) fatal "Avbrutt av bruker" ;;
+        *) fatal "Aborted by user" ;;
     esac
 fi
 
 # =============================================================================
-# FASE 2: MANUELL HELPER SCRIPT
+# PHASE 2: MANUAL HELPER SCRIPT
 # =============================================================================
-phase "FASE 2/3: Manuell - velg features i Helper Script"
+phase "PHASE 2/3: Manual - select features in Helper Script"
 
 cat <<'EOF'
 
-  Du skal nå kjøre Helper Script og velge følgende features:
+  You will now run Helper Script and install the following features:
 
   ┌─────────────────────────────────────────────────────────────┐
-  │  ANBEFALTE INSTALLASJONER (i denne rekkefølgen)             │
+  │  RECOMMENDED INSTALLATIONS (in this order)                  │
   ├─────────────────────────────────────────────────────────────┤
   │                                                             │
   │  [Install] menu (1):                                        │
-  │    1. Moonraker and Nginx     ← installer FØRST             │
+  │    1. Moonraker and Nginx     ← install FIRST               │
   │    2. Fluidd                                                │
   │    3. Mainsail                                              │
   │    4. KAMP                                                  │
@@ -154,31 +154,31 @@ cat <<'EOF'
   │    6. Save Z-Offset                                         │
   │    7. Improved Shapers                                      │
   │    8. Screws Tilt Adjust                                    │
-  │    9. Useful Macros (valgfritt)                             │
+  │    9. Useful Macros (optional)                              │
   │                                                             │
-  │  Trykk B etter hver installasjon for å gå tilbake.          │
-  │  Trykk E for å avslutte Helper Script når ferdig.           │
+  │  Press B after each install to return to the previous menu. │
+  │  Press E to exit Helper Script when finished.               │
   │                                                             │
   └─────────────────────────────────────────────────────────────┘
 
-  Etter Helper Script avsluttes, fortsetter dette skriptet
-  automatisk med FASE 3.
+  After Helper Script exits, this script will automatically
+  continue with PHASE 3.
 
 EOF
 
-printf "Trykk Enter for å starte Helper Script... "
+printf "Press Enter to launch Helper Script... "
 read REPLY
 
-# Kjør Helper Script i interaktiv modus
-sh "$HELPER_SCRIPT_DIR/helper.sh" || warn "Helper Script avsluttet med feilkode (kan være OK hvis du valgte E)"
+# Run Helper Script in interactive mode
+sh "$HELPER_SCRIPT_DIR/helper.sh" || warn "Helper Script exited with non-zero code (may be OK if you chose E)"
 
 # =============================================================================
-# FASE 3: AKTIVER CONFIGS
+# PHASE 3: ACTIVATE CONFIGS
 # =============================================================================
-phase "FASE 3/3: Aktiver configs og restart"
+phase "PHASE 3/3: Activate configs and restart"
 
-# -------- Verifiser at Helper Script-features ble installert --------
-log "Verifiserer at nødvendige filer finnes..."
+# -------- Verify Helper Script features were installed --------
+log "Verifying that required files exist..."
 
 MISSING_FILES=""
 
@@ -193,66 +193,66 @@ check_file "${CONFIG_DIR}/Helper-Script/save-zoffset.cfg"
 check_file "${CONFIG_DIR}/Helper-Script/screws-tilt-adjust.cfg"
 
 if [ -n "$MISSING_FILES" ]; then
-    warn "Disse Helper Script-filene mangler:"
+    warn "These Helper Script files are missing:"
     printf "$MISSING_FILES\n"
-    warn "Hvis include-linjer i printer.cfg refererer til disse, vil Klipper krasje."
-    printf "Fortsett likevel? [y/N]: "
+    warn "If include lines in printer.cfg reference these, Klipper will crash."
+    printf "Continue anyway? [y/N]: "
     read REPLY
     case "$REPLY" in
         [Yy]*) ;;
         *)
-            log "Avbrutt. Du kan kjøre Helper Script igjen manuelt:"
+            log "Aborted. You can run Helper Script again manually:"
             log "  sh $HELPER_SCRIPT_DIR/helper.sh"
-            log "Configs ligger fortsatt i staging: $STAGING_DIR"
-            log "Kjør deretter: sh $0 --resume"
+            log "Configs are still in staging: $STAGING_DIR"
+            log "Then run: sh $0 --resume"
             exit 0
             ;;
     esac
 fi
 
-# -------- Backup eksisterende configs --------
+# -------- Back up existing configs --------
 BACKUP_DIR="${CONFIG_DIR}/pre-restore-backup-$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
-log "Tar backup av eksisterende configs til $BACKUP_DIR"
+log "Backing up existing configs to $BACKUP_DIR"
 
 for f in $CONFIG_FILES; do
     if [ -e "${CONFIG_DIR}/${f}" ]; then
         cp "${CONFIG_DIR}/${f}" "$BACKUP_DIR/" || true
     fi
 done
-success "Backup tatt"
+success "Backup complete"
 
-# -------- Kopier configs fra staging --------
-log "Aktiverer nye configs..."
+# -------- Copy configs from staging --------
+log "Activating new configs..."
 
 for f in $CONFIG_FILES; do
     if [ -e "$STAGING_DIR/$f" ]; then
         cp "$STAGING_DIR/$f" "${CONFIG_DIR}/$f"
-        success "Aktivert $f"
+        success "Activated $f"
     else
-        warn "Hopper over $f (mangler i staging)"
+        warn "Skipping $f (missing in staging)"
     fi
 done
 
-# -------- Restart tjenester --------
-log "Restarter tjenester..."
+# -------- Restart services --------
+log "Restarting services..."
 
 if command -v supervisorctl > /dev/null 2>&1; then
-    supervisorctl restart klipper 2>/dev/null && success "Klipper restartet" || warn "Klipper-restart feilet"
-    supervisorctl restart moonraker 2>/dev/null && success "Moonraker restartet" || warn "Moonraker-restart feilet"
-    supervisorctl restart nginx 2>/dev/null && success "Nginx restartet" || warn "Nginx-restart feilet"
+    supervisorctl restart klipper 2>/dev/null && success "Klipper restarted" || warn "Klipper restart failed"
+    supervisorctl restart moonraker 2>/dev/null && success "Moonraker restarted" || warn "Moonraker restart failed"
+    supervisorctl restart nginx 2>/dev/null && success "Nginx restarted" || warn "Nginx restart failed"
 else
-    warn "supervisorctl ikke funnet - prøver init.d"
+    warn "supervisorctl not found - trying init.d"
     /etc/init.d/S55klipper_service restart 2>/dev/null || true
     /etc/init.d/S56moonraker_service restart 2>/dev/null || true
     /etc/init.d/S50nginx restart 2>/dev/null || true
 fi
 
-# -------- Rydd opp staging --------
+# -------- Clean up staging --------
 rm -rf "$STAGING_DIR"
 
 # =============================================================================
-# FERDIG
+# DONE
 # =============================================================================
 
 PRINTER_IP=$(ip -4 addr show wlan0 2>/dev/null | grep -oE 'inet [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}' | head -1)
@@ -261,24 +261,24 @@ PRINTER_IP=${PRINTER_IP:-<printer-ip>}
 cat <<EOF
 
 ╔══════════════════════════════════════════════════════════════╗
-║                    INSTALLASJON FULLFØRT                     ║
+║                  INSTALLATION COMPLETE                       ║
 ╚══════════════════════════════════════════════════════════════╝
 
   Fluidd:   http://${PRINTER_IP}:4408
   Mainsail: http://${PRINTER_IP}:4409
 
-  Backup av gamle configs: ${BACKUP_DIR}
+  Backup of old configs: ${BACKUP_DIR}
 
-═══ VIKTIG: KALIBRERING ═══
+═══ IMPORTANT: CALIBRATION ═══
 
-  Klipper kjører nå med dine configs, men har INGEN
-  kalibreringsdata for denne fysiske printeren.
+  Klipper is now running with your configs, but has NO
+  calibration data for this physical printer yet.
 
-  Åpne Fluidd → konsollen og kjør i denne rekkefølgen:
+  Open Fluidd → console and run, in this order:
 
-  1. Z-OFFSET (KRITISK - må gjøres først):
+  1. Z-OFFSET (CRITICAL - must be done first):
      PROBE_CALIBRATE
-     (gjør paper-test, trykk ACCEPT i Fluidd-popup)
+     (do the paper test, press ACCEPT in the Fluidd popup)
      SAVE_CONFIG
 
   2. PID hotend (~5 min):
@@ -298,17 +298,17 @@ cat <<EOF
      SHAPER_CALIBRATE
      SAVE_CONFIG
 
-  ADVARSEL: Z-offset er satt til 0 som placeholder.
-  IKKE PRINT før du har kjørt PROBE_CALIBRATE!
-  Nozzle vil ellers kjøre ned i bed-en.
+  WARNING: Z-offset is set to 0 as a placeholder.
+  DO NOT PRINT until you have run PROBE_CALIBRATE!
+  The nozzle will otherwise drive into the bed.
 
-═══ FEILSØKING ═══
+═══ TROUBLESHOOTING ═══
 
-  Hvis Klipper viser feil i Fluidd:
-    - Sjekk klippy.log: tail -50 ${PRINTER_DATA}/logs/klippy.log
-    - Vanlig feil: manglende include-fil (hoppet over en feature)
-    - Rull tilbake: cp ${BACKUP_DIR}/* ${CONFIG_DIR}/
+  If Klipper shows errors in Fluidd:
+    - Check klippy.log: tail -50 ${PRINTER_DATA}/logs/klippy.log
+    - Common error: missing include file (skipped a feature)
+    - Roll back: cp ${BACKUP_DIR}/* ${CONFIG_DIR}/
 
-  Kjør Helper Script på nytt: sh ${HELPER_SCRIPT_DIR}/helper.sh
+  Run Helper Script again: sh ${HELPER_SCRIPT_DIR}/helper.sh
 
 EOF
